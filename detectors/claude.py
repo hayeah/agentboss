@@ -27,8 +27,12 @@ elif any(p in bottom for p in [
 ]):
     state = 'waiting'
 
-# Idle: open prompt. Claude shows ">" or "❯" at the bottom.
-# Also check for the │ > pattern (Claude's bordered prompt).
+# Idle: open prompt. Claude Code shows "❯" on its own line between
+# two divider lines, with a status bar below. Check for the prompt
+# character anywhere in the bottom lines, not just at the very end.
+elif re.search(r'^❯\s*$', bottom, re.MULTILINE):
+    state = 'idle'
+# Also check for the │ > pattern (Claude's bordered prompt, older versions).
 elif re.search(r'[│|]\s*>\s*$', bottom, re.MULTILINE):
     state = 'idle'
 elif bottom.strip().endswith('>') or bottom.strip().endswith('❯'):

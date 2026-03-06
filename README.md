@@ -265,6 +265,7 @@ print(output)
 
 ## Agent-Specific Guides
 
+- [CLAUDE.md](CLAUDE.md) — driving Claude Code (model switching, permission modes, overlays, quirks)
 - [CODEX.md](CODEX.md) — driving OpenAI Codex CLI (model switching, slash commands, quirks)
 
 ## Architecture
