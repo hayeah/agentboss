@@ -26,13 +26,14 @@ func newLsCmd(b *Boss) *cobra.Command {
 			}
 
 			type entry struct {
-				Hash    string `json:"hash"`
-				HashID  string `json:"hashid"`
-				Key     string `json:"key,omitempty"`
-				CWD     string `json:"cwd"`
-				CMD     []string `json:"cmd"`
-				State   string `json:"state"`
-				Age     string `json:"age"`
+				Hash      string   `json:"hash"`
+				HashID    string   `json:"hashid"`
+				Key       string   `json:"key,omitempty"`
+				CWD       string   `json:"cwd"`
+				CMD       []string `json:"cmd"`
+				SessionID string   `json:"session_id,omitempty"`
+				State     string   `json:"state"`
+				Age       string   `json:"age"`
 			}
 
 			var entries []entry
@@ -48,13 +49,14 @@ func newLsCmd(b *Boss) *cobra.Command {
 				}
 
 				entries = append(entries, entry{
-					Hash:   proc.Hash,
-					HashID: proc.HashID,
-					Key:    proc.Key,
-					CWD:    proc.CWD,
-					CMD:    proc.CMD,
-					State:  state,
-					Age:    formatAge(proc.CreatedAt),
+					Hash:      proc.Hash,
+					HashID:    proc.HashID,
+					Key:       proc.Key,
+					CWD:       proc.CWD,
+					CMD:       proc.CMD,
+					SessionID: proc.SessionID,
+					State:     state,
+					Age:       formatAge(proc.CreatedAt),
 				})
 			}
 

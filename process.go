@@ -22,6 +22,7 @@ type Process struct {
 	CMD         []string  `json:"cmd"`
 	TmuxSession string    `json:"tmux_session"`
 	Detector    string    `json:"detector,omitempty"`
+	SessionID   string    `json:"session_id,omitempty"`
 	PID         int       `json:"pid"`
 	CreatedAt   time.Time `json:"created_at"`
 }

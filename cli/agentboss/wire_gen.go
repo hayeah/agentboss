@@ -22,7 +22,7 @@ func InitializeApp() (*App, func(), error) {
 	processStore := agentboss.NewProcessStore(stateDir)
 	tmux := agentboss.NewTmux()
 	detectorRunner := agentboss.NewDetectorRunner(processStore, tmux, stateDir)
-	boss := agentboss.NewBoss(processStore, tmux)
+	boss := agentboss.NewBoss(processStore, tmux, detectorRunner)
 	mainBoss := NewBoss(processStore, tmux, detectorRunner, boss)
 	app := NewApp(mainBoss)
 	return app, func() {

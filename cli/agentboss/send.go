@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hayeah/agentboss"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +13,7 @@ func newSendCmd(b *Boss) *cobra.Command {
 	var flagKeys bool
 	var flagNoEnter bool
 	var flagWait bool
+	var flagWaitReply bool
 	var flagTimeout int
 
 	cmd := &cobra.Command{
@@ -26,6 +28,31 @@ func newSendCmd(b *Boss) *cobra.Command {
 
 			if !b.store.IsAlive(proc.Hash) {
 				return fmt.Errorf("process %s is not running", proc.HashID)
+			}
+
+			// Bookmark the session log before sending (for --wait-reply)
+			type replyReader interface {
+				ReadReply() (string, error)
+			}
+			var bookmark replyReader
+			if flagWaitReply {
+				flagWait = true // --wait-reply implies --wait
+				if proc.SessionID == "" {
+					return fmt.Errorf("no session ID recorded for %s (restart the process to capture it)", proc.HashID)
+				}
+				switch proc.Detector {
+				case "claude":
+					session := agentboss.NewClaudeSession(proc.CWD)
+					bookmark, err = session.Bookmark(proc.SessionID)
+				case "codex":
+					session := agentboss.NewCodexSession()
+					bookmark, err = session.Bookmark(proc.SessionID)
+				default:
+					return fmt.Errorf("--wait-reply not supported for detector %q (supported: claude, codex)", proc.Detector)
+				}
+				if err != nil {
+					return fmt.Errorf("bookmark session: %w", err)
+				}
 			}
 
 			if flagKeys {
@@ -75,7 +102,16 @@ func newSendCmd(b *Boss) *cobra.Command {
 
 				if outputChanged && result.State == "idle" {
 					elapsed := time.Since(start).Milliseconds()
-					fmt.Printf("idle (waited %dms)\n", elapsed)
+
+					if flagWaitReply && bookmark != nil {
+						reply, err := bookmark.ReadReply()
+						if err != nil {
+							return fmt.Errorf("read reply: %w", err)
+						}
+						fmt.Print(reply)
+					} else {
+						fmt.Printf("idle (waited %dms)\n", elapsed)
+					}
 					return nil
 				}
 
@@ -89,6 +125,7 @@ func newSendCmd(b *Boss) *cobra.Command {
 	cmd.Flags().BoolVar(&flagKeys, "keys", false, "Send raw tmux key names")
 	cmd.Flags().BoolVar(&flagNoEnter, "no-enter", false, "Don't press Enter after text")
 	cmd.Flags().BoolVar(&flagWait, "wait", false, "Block until the agent returns to idle after processing")
+	cmd.Flags().BoolVar(&flagWaitReply, "wait-reply", false, "Wait for idle and print the agent's reply (implies --wait)")
 	cmd.Flags().IntVar(&flagTimeout, "timeout", 60, "Timeout in seconds (with --wait)")
 
 	return cmd
