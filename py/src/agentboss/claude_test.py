@@ -70,3 +70,25 @@ class TestParseHighlightedLine:
         # 7 appears in the middle of the SGR params
         raw = "\x1b[38;7;1mBold Inverse Text\x1b[0m\n"
         assert parse_highlighted_line(raw) == "Bold Inverse Text"
+
+    def test_cursor_prefix_highlight(self):
+        # Claude Code v2.x uses ❯ prefix for selected item in model picker
+        raw = (
+            "\x1b[38;2;177;185;249m❯\x1b[39m \x1b[38;2;153;153;153m1. "
+            "\x1b[38;2;78;186;101mDefault (recommended) ✔\x1b[39m  "
+            "\x1b[38;2;153;153;153mOpus 4.6\x1b[39m\n"
+            "    \x1b[38;2;153;153;153m2.\x1b[39m Sonnet\n"
+            "    \x1b[38;2;153;153;153m3.\x1b[39m Haiku\n"
+        )
+        result = parse_highlighted_line(raw)
+        assert result is not None
+        assert "Default" in result
+
+    def test_cursor_prefix_non_default(self):
+        raw = (
+            "    \x1b[38;2;153;153;153m1.\x1b[39m Default\n"
+            "\x1b[38;2;177;185;249m❯\x1b[39m \x1b[38;2;153;153;153m2.\x1b[39m Sonnet\n"
+            "    \x1b[38;2;153;153;153m3.\x1b[39m Haiku\n"
+        )
+        result = parse_highlighted_line(raw)
+        assert result == "Sonnet"

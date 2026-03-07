@@ -14,7 +14,9 @@ from agentboss.agent import Agent
 
 # ANSI escape sequence for inverse video (SGR 7), used to highlight
 # the selected item in Ink-based TUI pickers.
-_INVERSE_RE = re.compile(r"\x1b\[[\d;]*7[\d;]*m")
+# Match SGR parameter 7 as a standalone value, not as part of multi-digit
+# numbers like 17 or 177.
+_INVERSE_RE = re.compile(r"\x1b\[(?:\d+;)*7(?:;\d+)*m")
 
 # Known model entries in Claude Code's model picker.
 MODELS: dict[str, str] = {
@@ -132,16 +134,14 @@ class Claude:
     def cycle_permission_mode(self) -> str | None:
         """Cycle to the next permission mode (Shift+Tab).
 
-        Returns the new mode string from the status bar.
+        Returns the new mode string from the status bar, or "default" for
+        the unnamed default mode (shown as "? for shortcuts").
         """
-        content = self.agent.send_keys(
-            "BTab",
-            expect=r"accept edits on|plan mode on|bypass permissions on",
-        )
+        content = self.agent.send_keys("BTab", expect_change=True)
         for mode in ["bypass permissions on", "accept edits on", "plan mode on"]:
             if mode in content:
                 return mode.replace(" on", "")
-        return None
+        return "default"
 
     def set_permission_mode(self, target: str) -> None:
         """Cycle permission modes until the target mode is active.
@@ -161,8 +161,13 @@ class Claude:
 
 
 def parse_prompt_text(content: str) -> str:
-    """Extract text after the ❯ prompt character from pane content."""
-    for line in content.split("\n"):
+    """Extract text after the ❯ prompt character from the active prompt.
+
+    Scans from the bottom of the pane content to find the actual input prompt
+    (not earlier ❯ lines from conversation history).
+    """
+    lines = content.split("\n")
+    for line in reversed(lines):
         stripped = line.strip()
         if stripped.startswith("\u276f"):  # ❯
             return stripped[1:].strip()
@@ -170,10 +175,27 @@ def parse_prompt_text(content: str) -> str:
 
 
 def parse_highlighted_line(raw: str) -> str | None:
-    """Find the line with ANSI inverse video and return its plain text."""
+    """Find the highlighted line in the model picker and return its plain text.
+
+    Detection methods (tried in order):
+    - ANSI inverse video (SGR 7) — older Claude Code versions
+    - ❯ cursor prefix — current Claude Code model picker uses ❯ to mark
+      the selected item (e.g. "❯ 1. Default (recommended) ✔")
+    """
     for line in raw.split("\n"):
         if _INVERSE_RE.search(line):
             clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
             if clean:
                 return clean
+
+    # Fallback: look for ❯ cursor prefix in picker lines (not the input prompt).
+    # Picker lines contain numbered items like "❯ 1. Default..." while the
+    # input prompt is just "❯" or "❯ <user text>" on its own line.
+    for line in raw.split("\n"):
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+        if clean.startswith("\u276f") and re.search(r"\d+\.", clean):
+            # Strip the ❯ prefix and number
+            text = re.sub(r"^\u276f\s*\d+\.\s*", "", clean).strip()
+            if text:
+                return text
     return None
