@@ -222,9 +222,19 @@ dmux's approach to Claude detection (from `PaneWorker.ts`):
 
 ## Python Helpers
 
-`scripts/agentboss.py` provides an `Agent` class wrapping the CLI. `scripts/claude_helpers.py` adds Claude-specific helpers.
+The `py/` directory is a pip-installable Python package wrapping the agentboss CLI.
 
-### Agent class
+### Installation
+
+```bash
+# Editable install (recommended for development)
+uv tool install -e ./py
+
+# Or use directly with uv run
+uv run --with ./py python3 my_driver.py
+```
+
+### Agent class (`agentboss.Agent`)
 
 ```python
 from agentboss import Agent
@@ -241,7 +251,7 @@ agent.send("fix the auth bug")
 
 # Wait without sending
 agent.expect(pattern=r"Session ID:")
-agent.expect(state="idle", timeout="60s")
+agent.expect(state="idle", timeout=60)
 agent.expect(change=True)
 
 # Read pane content
@@ -249,11 +259,11 @@ content = agent.output()
 raw = agent.output(escapes=True)  # with ANSI codes
 ```
 
-### Claude helpers
+### Claude helpers (`agentboss.claude.Claude`)
 
 ```python
 from agentboss import Agent
-from claude_helpers import Claude
+from agentboss.claude import Claude
 
 agent = Agent("claude")
 claude = Claude(agent)
@@ -276,35 +286,25 @@ claude.cycle_permission_mode()           # Shift+Tab, returns new mode
 claude.set_permission_mode("plan mode")  # cycles until target is active
 ```
 
-### Using in scripts
-
-The helpers are standalone Python files with no dependencies. Copy them or add to `PYTHONPATH`:
-
-```bash
-export PYTHONPATH=/path/to/agentboss/scripts
-export AGENTBOSS_KEY=claude
-python3 my_driver.py
-```
-
-Example driver script:
+### Example driver script
 
 ```python
 #!/usr/bin/env python3
 from agentboss import Agent
-from claude_helpers import Claude
+from agentboss.claude import Claude
 
-agent = Agent()
+agent = Agent("claude")  # or set AGENTBOSS_KEY=claude
 claude = Claude(agent)
 
 # Switch to Haiku for a quick task
 claude.switch_model("haiku")
 agent.send("fix the typo in README.md", expect_state="working")
-agent.expect(state="idle", timeout="120s")
+agent.expect(state="idle", timeout=120)
 
 # Switch to Opus for a complex task
 claude.switch_model("opus")
 agent.send("redesign the auth architecture", expect_state="working")
-agent.expect(state="idle", timeout="300s")
+agent.expect(state="idle", timeout=300)
 ```
 
 ## Quirks and Gotchas

@@ -4,30 +4,20 @@ Higher-level functions for controlling Claude Code's TUI:
 - Prompt inspection and clearing
 - Model picker navigation with highlight detection
 - Permission mode cycling
-
-Usage:
-    from agentboss import Agent
-    from claude_helpers import Claude
-
-    agent = Agent("claude")
-    claude = Claude(agent)
-
-    # Check/clear prompt
-    text = claude.prompt_text()
-    claude.clear_prompt()
-
-    # Switch model
-    claude.switch_model("sonnet")
 """
 
+from __future__ import annotations
+
 import re
+
+from agentboss.agent import Agent
 
 # ANSI escape sequence for inverse video (SGR 7), used to highlight
 # the selected item in Ink-based TUI pickers.
 _INVERSE_RE = re.compile(r"\x1b\[[\d;]*7[\d;]*m")
 
 # Known model entries in Claude Code's model picker.
-MODELS = {
+MODELS: dict[str, str] = {
     "opus": "Opus",
     "sonnet": "Sonnet",
     "haiku": "Haiku",
@@ -38,29 +28,25 @@ MODEL_ORDER = ["opus", "sonnet", "haiku"]
 
 
 class Claude:
-    def __init__(self, agent):
+    def __init__(self, agent: Agent):
         self.agent = agent
 
     # -- Prompt inspection --
 
-    def prompt_text(self):
+    def prompt_text(self) -> str:
         """Extract text currently typed in the Claude Code input prompt.
 
         Returns the text after the `❯` prompt character, or empty string
         if the prompt is empty or not visible.
         """
         content = self.agent.output()
-        for line in content.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("\u276f"):  # ❯
-                return stripped[1:].strip()
-        return ""
+        return parse_prompt_text(content)
 
-    def has_prompt_text(self):
+    def has_prompt_text(self) -> bool:
         """Check if there is text in the input prompt."""
         return bool(self.prompt_text())
 
-    def clear_prompt(self):
+    def clear_prompt(self) -> None:
         """Clear the current input prompt text.
 
         Sends Ctrl+U (Unix line-kill) which clears the line in most
@@ -73,7 +59,7 @@ class Claude:
 
     # -- Model picker --
 
-    def highlighted_model(self):
+    def highlighted_model(self) -> str | None:
         """Detect which model is currently highlighted in the model picker.
 
         Uses ANSI escape sequences from tmux capture-pane to find the
@@ -83,15 +69,9 @@ class Claude:
         if no highlighted line is detected.
         """
         raw = self.agent.output(escapes=True)
-        for line in raw.split("\n"):
-            if _INVERSE_RE.search(line):
-                # Strip ANSI codes to get plain text
-                clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-                if clean:
-                    return clean
-        return None
+        return parse_highlighted_line(raw)
 
-    def highlighted_model_key(self):
+    def highlighted_model_key(self) -> str | None:
         """Return the model key (opus/sonnet/haiku) of the highlighted model.
 
         Returns None if the highlight can't be detected or doesn't match
@@ -105,7 +85,7 @@ class Claude:
                 return key
         return None
 
-    def switch_model(self, target):
+    def switch_model(self, target: str) -> None:
         """Switch to a target model via the /model picker.
 
         Args:
@@ -142,16 +122,14 @@ class Claude:
         # Verify we're on the right item before selecting
         actual = self.highlighted_model_key()
         if actual and actual != target:
-            raise RuntimeError(
-                f"expected highlight on {target}, but got {actual}"
-            )
+            raise RuntimeError(f"expected highlight on {target}, but got {actual}")
 
         # Select and wait for picker to close
         self.agent.send_keys("Enter", expect_state="idle")
 
     # -- Permission mode --
 
-    def cycle_permission_mode(self):
+    def cycle_permission_mode(self) -> str | None:
         """Cycle to the next permission mode (Shift+Tab).
 
         Returns the new mode string from the status bar.
@@ -160,13 +138,12 @@ class Claude:
             "BTab",
             expect=r"accept edits on|plan mode on|bypass permissions on",
         )
-        # Extract the mode from the matched content
         for mode in ["bypass permissions on", "accept edits on", "plan mode on"]:
             if mode in content:
                 return mode.replace(" on", "")
         return None
 
-    def set_permission_mode(self, target):
+    def set_permission_mode(self, target: str) -> None:
         """Cycle permission modes until the target mode is active.
 
         Args:
@@ -178,3 +155,25 @@ class Claude:
                 return
             self.cycle_permission_mode()
         raise RuntimeError(f"could not reach permission mode {target!r}")
+
+
+# -- Pure functions for testing --
+
+
+def parse_prompt_text(content: str) -> str:
+    """Extract text after the ❯ prompt character from pane content."""
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("\u276f"):  # ❯
+            return stripped[1:].strip()
+    return ""
+
+
+def parse_highlighted_line(raw: str) -> str | None:
+    """Find the line with ANSI inverse video and return its plain text."""
+    for line in raw.split("\n"):
+        if _INVERSE_RE.search(line):
+            clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+            if clean:
+                return clean
+    return None
