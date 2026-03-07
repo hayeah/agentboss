@@ -8,6 +8,7 @@ import (
 
 func newOutputCmd(b *Boss) *cobra.Command {
 	var lines int
+	var escapes bool
 
 	cmd := &cobra.Command{
 		Use:   "output HASH",
@@ -19,7 +20,12 @@ func newOutputCmd(b *Boss) *cobra.Command {
 				return err
 			}
 
-			content, err := b.tmux.CapturePan(proc.TmuxSession, lines)
+			var content string
+			if escapes {
+				content, err = b.tmux.CapturePaneEscapes(proc.TmuxSession, lines)
+			} else {
+				content, err = b.tmux.CapturePan(proc.TmuxSession, lines)
+			}
 			if err != nil {
 				return err
 			}
@@ -30,6 +36,7 @@ func newOutputCmd(b *Boss) *cobra.Command {
 	}
 
 	cmd.Flags().IntVarP(&lines, "lines", "n", 50, "Number of lines to capture")
+	cmd.Flags().BoolVarP(&escapes, "escapes", "e", false, "Include ANSI escape sequences")
 
 	return cmd
 }

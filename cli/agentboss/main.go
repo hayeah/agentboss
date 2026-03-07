@@ -39,6 +39,7 @@ func NewApp(boss *Boss) *App {
 		newRunCmd(boss),
 		newOutputCmd(boss),
 		newSendCmd(boss),
+		newExpectCmd(boss),
 		newStatusCmd(boss),
 		newWaitCmd(boss),
 		newLsCmd(boss),

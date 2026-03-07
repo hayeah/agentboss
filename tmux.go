@@ -72,6 +72,16 @@ func (t *Tmux) PasteBuffer(name string, text string) error {
 	return nil
 }
 
+// CapturePaneEscapes captures the last N lines including ANSI escape sequences.
+func (t *Tmux) CapturePaneEscapes(name string, lines int) (string, error) {
+	start := fmt.Sprintf("-%d", lines)
+	out, err := t.output("capture-pane", "-t", name, "-p", "-e", "-S", start)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 // Attach replaces the current process with tmux attach.
 func (t *Tmux) Attach(name string) error {
 	tmuxPath, err := exec.LookPath("tmux")

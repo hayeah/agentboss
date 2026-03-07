@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/hayeah/agentboss"
@@ -15,6 +16,9 @@ func newSendCmd(b *Boss) *cobra.Command {
 	var flagWait bool
 	var flagWaitReply bool
 	var flagTimeout int
+	var flagExpect string
+	var flagExpectState string
+	var flagExpectChange bool
 
 	cmd := &cobra.Command{
 		Use:   "send HASH TEXT|--keys KEY...",
@@ -29,6 +33,51 @@ func newSendCmd(b *Boss) *cobra.Command {
 			if !b.store.IsAlive(proc.Hash) {
 				return fmt.Errorf("process %s is not running", proc.HashID)
 			}
+
+			// Build the send function
+			sendFn := func() error {
+				if flagKeys {
+					return b.tmux.SendKeys(proc.TmuxSession, args[1:]...)
+				}
+				text := args[1]
+				if err := b.tmux.SendText(proc.TmuxSession, text); err != nil {
+					return err
+				}
+				if !flagNoEnter {
+					time.Sleep(100 * time.Millisecond)
+					return b.tmux.SendKeys(proc.TmuxSession, "Enter")
+				}
+				return nil
+			}
+
+			// -- Expect mode: send + poll for condition --
+			if flagExpect != "" || flagExpectState != "" || flagExpectChange {
+				opts := agentboss.ExpectOpts{
+					State:  flagExpectState,
+					Change: flagExpectChange,
+				}
+				if flagExpect != "" {
+					re, err := regexp.Compile(flagExpect)
+					if err != nil {
+						return fmt.Errorf("invalid expect pattern: %w", err)
+					}
+					opts.Pattern = re
+				}
+				if flagTimeout > 0 {
+					opts.Timeout = time.Duration(flagTimeout) * time.Second
+				}
+
+				content, err := b.boss.SendAndExpect(proc, sendFn, opts)
+				if err != nil {
+					return err
+				}
+				if content != "" {
+					fmt.Print(content)
+				}
+				return nil
+			}
+
+			// -- Legacy --wait / --wait-reply mode --
 
 			// Bookmark the session log before sending (for --wait-reply)
 			type replyReader interface {
@@ -55,34 +104,21 @@ func newSendCmd(b *Boss) *cobra.Command {
 				}
 			}
 
-			if flagKeys {
-				if err := b.tmux.SendKeys(proc.TmuxSession, args[1:]...); err != nil {
-					return err
-				}
-			} else {
-				text := args[1]
-				if err := b.tmux.SendText(proc.TmuxSession, text); err != nil {
-					return err
-				}
-				if !flagNoEnter {
-					time.Sleep(100 * time.Millisecond)
-					if err := b.tmux.SendKeys(proc.TmuxSession, "Enter"); err != nil {
-						return err
-					}
-				}
+			// Send
+			if err := sendFn(); err != nil {
+				return err
 			}
 
 			if !flagWait {
 				return nil
 			}
 
-			// Snapshot output right after sending, so we detect the agent's
-			// response (not just our typed text) as the content change.
+			// Snapshot output right after sending
 			time.Sleep(200 * time.Millisecond)
 			afterContent, _ := b.tmux.CapturePan(proc.TmuxSession, 50)
 			afterHash := sha256.Sum256([]byte(afterContent))
 
-			// Wait until: output has changed from post-send snapshot AND state is idle.
+			// Wait until: output changed AND state is idle
 			deadline := time.Now().Add(time.Duration(flagTimeout) * time.Second)
 			start := time.Now()
 
@@ -126,7 +162,10 @@ func newSendCmd(b *Boss) *cobra.Command {
 	cmd.Flags().BoolVar(&flagNoEnter, "no-enter", false, "Don't press Enter after text")
 	cmd.Flags().BoolVar(&flagWait, "wait", false, "Block until the agent returns to idle after processing")
 	cmd.Flags().BoolVar(&flagWaitReply, "wait-reply", false, "Wait for idle and print the agent's reply (implies --wait)")
-	cmd.Flags().IntVar(&flagTimeout, "timeout", 60, "Timeout in seconds (with --wait)")
+	cmd.Flags().IntVar(&flagTimeout, "timeout", 60, "Timeout in seconds")
+	cmd.Flags().StringVar(&flagExpect, "expect", "", "Wait for regex pattern in pane after sending")
+	cmd.Flags().StringVar(&flagExpectState, "expect-state", "", "Wait for detector state after sending (idle, working, waiting)")
+	cmd.Flags().BoolVar(&flagExpectChange, "expect-change", false, "Wait for any pane content change after sending")
 
 	return cmd
 }
