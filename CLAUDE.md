@@ -33,6 +33,47 @@ agentboss send claude "refactor the entire codebase" --wait --timeout 300
 
 Text is sent via `tmux send-keys -l` (literal mode), then `Enter` is sent after a 100ms delay.
 
+## Expect: Atomic Send + Verify
+
+Every `send` can include an expect condition. Go sends the input, then polls tmux at 75ms intervals until the condition is met:
+
+```bash
+# Send text, wait for pattern to appear in pane
+agentboss send claude "/model" --expect "Sonnet|Haiku|Opus"
+
+# Send keys, wait for pattern
+agentboss send claude --keys Down --expect "Sonnet"
+
+# Send text, wait for detector state
+agentboss send claude "fix the auth bug" --expect-state working
+
+# Send keys, wait for state
+agentboss send claude --keys Enter --expect-state idle
+
+# Send text, wait for any content change
+agentboss send claude "hello" --expect-change
+```
+
+Standalone expect (wait without sending):
+
+```bash
+agentboss expect claude "Session ID:"
+agentboss expect claude --state idle --timeout 60s
+agentboss expect claude --change
+```
+
+Default timeouts: 5s for `--expect` (pattern/change), 60s for `--expect-state`.
+
+### Pane output with ANSI escapes
+
+```bash
+# Plain text (default)
+agentboss output claude
+
+# Include ANSI escape sequences (for highlight detection)
+agentboss output claude --escapes
+```
+
 ## Slash Commands
 
 Claude Code supports slash commands at the prompt. Send them as regular text:
@@ -62,6 +103,19 @@ agentboss send claude "/model"
 agentboss send claude --keys Down Enter
 ```
 
+With expect (no sleeps, verifies each step):
+
+```bash
+# Open picker, wait for it to render
+agentboss send claude "/model" --expect "Sonnet|Haiku|Opus"
+
+# Navigate down, wait for content to update
+agentboss send claude --keys Down --expect-change
+
+# Select and wait for picker to close
+agentboss send claude --keys Enter --expect-state idle
+```
+
 The model picker shows entries like:
 
 ```
@@ -70,7 +124,7 @@ The model picker shows entries like:
   Haiku (claude-haiku-4-5-20251001)
 ```
 
-The cursor starts on the currently selected item (marked with checkmark). Navigation is relative to current position.
+The cursor starts on the currently selected item (marked with checkmark). Navigation is relative to current position. The highlighted item is rendered with ANSI inverse video — use `agentboss output claude --escapes` to detect it.
 
 ## Permission Mode Cycling
 
@@ -165,6 +219,93 @@ dmux's approach to Claude detection (from `PaneWorker.ts`):
 - **Working**: Same `(esc to interrupt)` universal pattern. dmux also checks for Claude-specific activity words (`Germinating`, `Thinking`, `Planning`, etc.) combined with the interrupt indicator, but the universal pattern alone is sufficient.
 - **Trust prompts**: dmux has `autoApproveTrustPrompt()` that polls for "Do you trust the files" patterns and auto-sends Enter. With `--dangerously-skip-permissions`, this prompt doesn't appear.
 - **LLM fallback**: dmux uses a two-tier system — deterministic patterns first, then LLM classification for ambiguous states. agentboss uses `unknown` state to signal the caller's AI loop should classify.
+
+## Python Helpers
+
+`scripts/agentboss.py` provides an `Agent` class wrapping the CLI. `scripts/claude_helpers.py` adds Claude-specific helpers.
+
+### Agent class
+
+```python
+from agentboss import Agent
+
+agent = Agent("claude")  # or Agent() to use AGENTBOSS_KEY env var
+
+# Send with expect (atomic action + verify)
+agent.send("/model", expect=r"Sonnet|Haiku|Opus")
+agent.send_keys("Down", expect_change=True)
+agent.send_keys("Enter", expect_state="idle")
+
+# Send fire-and-forget
+agent.send("fix the auth bug")
+
+# Wait without sending
+agent.expect(pattern=r"Session ID:")
+agent.expect(state="idle", timeout="60s")
+agent.expect(change=True)
+
+# Read pane content
+content = agent.output()
+raw = agent.output(escapes=True)  # with ANSI codes
+```
+
+### Claude helpers
+
+```python
+from agentboss import Agent
+from claude_helpers import Claude
+
+agent = Agent("claude")
+claude = Claude(agent)
+
+# Prompt inspection
+text = claude.prompt_text()      # text after the ❯ prompt
+claude.has_prompt_text()          # True if prompt has text
+claude.clear_prompt()             # Ctrl+U, verifies with expect-change
+
+# Model switching (detects highlight, navigates, verifies each step)
+claude.switch_model("sonnet")     # "opus", "sonnet", or "haiku"
+claude.switch_model("haiku")
+
+# Highlight detection (uses ANSI inverse video from --escapes output)
+claude.highlighted_model()        # "Sonnet (claude-sonnet-4-6)" or None
+claude.highlighted_model_key()    # "sonnet" or None
+
+# Permission modes
+claude.cycle_permission_mode()           # Shift+Tab, returns new mode
+claude.set_permission_mode("plan mode")  # cycles until target is active
+```
+
+### Using in scripts
+
+The helpers are standalone Python files with no dependencies. Copy them or add to `PYTHONPATH`:
+
+```bash
+export PYTHONPATH=/path/to/agentboss/scripts
+export AGENTBOSS_KEY=claude
+python3 my_driver.py
+```
+
+Example driver script:
+
+```python
+#!/usr/bin/env python3
+from agentboss import Agent
+from claude_helpers import Claude
+
+agent = Agent()
+claude = Claude(agent)
+
+# Switch to Haiku for a quick task
+claude.switch_model("haiku")
+agent.send("fix the typo in README.md", expect_state="working")
+agent.expect(state="idle", timeout="120s")
+
+# Switch to Opus for a complex task
+claude.switch_model("opus")
+agent.send("redesign the auth architecture", expect_state="working")
+agent.expect(state="idle", timeout="300s")
+```
 
 ## Quirks and Gotchas
 
